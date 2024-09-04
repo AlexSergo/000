@@ -1,19 +1,12 @@
 package com.example.vpn
 
-import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import java.io.FileDescriptor
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.net.UnknownHostException
 import kotlin.experimental.and
 
 class FirewallService : VpnService() {
@@ -65,20 +58,31 @@ class FirewallService : VpnService() {
 
     private fun getDestinationAddress(packet: ByteArray): String {
         try {
-            // IP-заголовок начинается с 14 байт (Ethernet заголовок)
-            // Обычно IP-заголовок начинается с 14 байта
-            val ipHeaderStart = 14
-            // Определяем длину IP-заголовка
-            val versionAndIHL = packet[ipHeaderStart]
-            val ihl = (versionAndIHL and 0x0F).toInt() * 4
+            return when (packet[0] and 0xF0.toByte()) {
+                0x40.toByte() -> {
+                    // определить длину заголовка
+                    val headerLength = (packet[0] and 0x0F).toInt() * 4
 
-            // Адрес назначения начинается с байта после IP-заголовка
-            val destIpStart = ipHeaderStart + ihl + 16
-            val destIpBytes = packet.copyOfRange(destIpStart, destIpStart + 4)
-            // Преобразуем байты в строку IP-адреса
-            val destIp = destIpBytes.joinToString(".") { it.toUByte().toString() }
+                    // Адрес назначения - последние 4 байта заголовка
+                    val destIpBytes = packet.copyOfRange(headerLength - 4, headerLength)
 
-            return destIp
+                    // Преобразуем байты в строку IP-адреса
+                    destIpBytes.joinToString(".") { it.toUByte().toString() }
+                }
+
+                0x60.toByte() -> {
+                    // определить длину заголовка
+                    val headerLength = packet[6].toInt()
+
+                    // Извлекаем адрес назначения из пакета
+                    val destinationAddress = packet.copyOfRange(8 + headerLength, 24 + headerLength)
+
+                    // Преобразуем адрес в строковый формат
+                    destinationAddress.joinToString(":") { String.format("%02X", it) }
+                }
+
+                else -> "unknown"
+            }
         } catch (e: Exception) {
             Log.e("FirewallService", "Error extracting destination address", e)
             return "unknown"
